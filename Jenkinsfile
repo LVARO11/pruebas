@@ -1,7 +1,7 @@
 pipeline {
     agent any
     tools {
-        maven 'Maven' // Debe coincidir con el nombre en Global Tool Configuration de Jenkins
+        maven 'Maven'
     }
     environment {
         NEXUS_VERSION = 'nexus3'
@@ -27,20 +27,25 @@ pipeline {
             steps {
                 dir('Back-End') {
                     script {
-                        // Necesitas el plugin Pipeline Utility Steps para esto
-                        def pom = readMavenPom file: 'pom.xml'
-                        def artefacto = findFiles(glob: "target/*.${pom.packaging}")[0]
+                        // Leer el pom.xml con Groovy puro
+                        def pomText = readFile('pom.xml')
+                        def artifactId = pomText.find(/<artifactId>(.+?)<\/artifactId>/) { m, id -> id }
+                        def groupId = pomText.find(/<groupId>(.+?)<\/groupId>/) { m, id -> id }
+                        def version = pomText.find(/<version>(.+?)<\/version>/) { m, id -> id }
+                        def packaging = pomText.find(/<packaging>(.+?)<\/packaging>/) { m, id -> id } ?: 'jar'
+                        // Buscar el artefacto generado
+                        def artefacto = sh(script: "ls target/*.${packaging}", returnStdout: true).trim()
                         nexusArtifactUploader(
                             nexusVersion: env.NEXUS_VERSION,
                             protocol: env.NEXUS_PROTOCOL,
                             nexusUrl: env.NEXUS_URL,
-                            groupId: pom.groupId,
-                            version: pom.version,
+                            groupId: groupId,
+                            version: version,
                             repository: env.NEXUS_REPOSITORY,
                             credentialsId: env.NEXUS_CREDENTIAL_ID,
                             artifacts: [
-                                [artifactId: pom.artifactId, file: artefacto.path, type: pom.packaging],
-                                [artifactId: pom.artifactId, file: 'pom.xml', type: 'pom']
+                                [artifactId: artifactId, file: artefacto, type: packaging],
+                                [artifactId: artifactId, file: 'pom.xml', type: 'pom']
                             ]
                         )
                     }
