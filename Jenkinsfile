@@ -1,56 +1,40 @@
 pipeline {
     agent any
+
+    environment {
+        NEXUS_URL = 'http://localhost:8081'  // Asegúrate de usar la IP correcta si no es localhost
+        NEXUS_REPO = 'artefactos-local'
+    }
+
     tools {
         maven 'Maven'
     }
-    environment {
-        NEXUS_VERSION = 'nexus3'
-        NEXUS_PROTOCOL = 'http'
-        NEXUS_URL = 'localhost:8081'
-        NEXUS_REPOSITORY = 'artefactos-local'
-        NEXUS_CREDENTIAL_ID = 'nexus-cred'
-    }
+
     stages {
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/LVARO11/pruebas.git', branch: 'main'
+                git credentialsId: 'git-pat', url: 'https://github.com/LVARO11/pruebas', branch: 'main'
             }
         }
-        stage('Build') {
+
+        stage('Publish JAR to Nexus') {
             steps {
-                dir('Back-End') {
-                    sh 'mvn clean package -DskipTests'
-                }
-            }
-        }
-        stage('Subir a Nexus') {
-            steps {
-                dir('Back-End') {
-                    script {
-                        // Leer el pom.xml con Groovy puro
-                        def pomText = readFile('pom.xml')
-                        def artifactId = pomText.find(/<artifactId>(.+?)<\/artifactId>/) { m, id -> id }
-                        def groupId = pomText.find(/<groupId>(.+?)<\/groupId>/) { m, id -> id }
-                        def version = pomText.find(/<version>(.+?)<\/version>/) { m, id -> id }
-                        def packaging = pomText.find(/<packaging>(.+?)<\/packaging>/) { m, id -> id } ?: 'jar'
-                        // Buscar el artefacto generado
-                        def artefacto = sh(script: "ls target/*.${packaging}", returnStdout: true).trim()
-                        nexusArtifactUploader(
-                            nexusVersion: env.NEXUS_VERSION,
-                            protocol: env.NEXUS_PROTOCOL,
-                            nexusUrl: env.NEXUS_URL,
-                            groupId: groupId,
-                            version: version,
-                            repository: env.NEXUS_REPOSITORY,
-                            credentialsId: env.NEXUS_CREDENTIAL_ID,
-                            artifacts: [
-                                [artifactId: artifactId, file: artefacto, type: packaging],
-                                [artifactId: artifactId, file: 'pom.xml', type: 'pom']
-                            ]
-                        )
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-cred',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        mvn -f Back-End/pom.xml deploy \
+                          -DskipTests \
+                          -DaltDeploymentRepository=nexus::default::${NEXUS_URL}/repository/${NEXUS_REPO}/ \
+                          -Dnexus.username=\$NEXUS_USER \
+                          -Dnexus.password=\$NEXUS_PASS
+                    """
                 }
             }
         }
     }
 }
+
+
